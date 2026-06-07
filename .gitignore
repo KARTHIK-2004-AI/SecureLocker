@@ -1,0 +1,23 @@
+# Virtual environment
+.venv/
+
+# Sensitive security data — NEVER push
+data/face_embedding.npy
+data/vault.key
+data/intruder_log.txt
+data/vault/
+data/decoy/
+data/exported/
+data/temp_capture.jpg
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Test/debug files
+find_camera.py
+find_camera2.py
+test_camera.py
+camera_test.jpg
+cam_test.jpg
