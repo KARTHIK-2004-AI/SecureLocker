@@ -5,6 +5,7 @@
 data/face_embedding.npy
 data/vault.key
 data/intruder_log.txt
+data/verification_log.jsonl
 data/vault/
 data/decoy/
 data/exported/
