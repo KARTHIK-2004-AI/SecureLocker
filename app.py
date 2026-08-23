@@ -1,6 +1,15 @@
 import os
+import warnings
+import logging
+
+# Suppress TensorFlow C++ and Python log spam
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+warnings.filterwarnings('ignore')
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
 from core.face_auth import register_face, verify_face
-from core.encryption import encrypt_vault, decrypt_vault, generate_key,add_file_to_vault
+from core.encryption import encrypt_vault, decrypt_vault, generate_key, add_file_to_vault, decrypt_file
 from core.decoy import setup_decoy, show_decoy, show_real_vault
 import tkinter as tk
 from tkinter import filedialog
@@ -91,6 +100,10 @@ def unlock_vault():
                 if path:
                     print(f"Selected: {os.path.basename(path)}")
                     add_file_to_vault(path)
+                    # Keep unencrypted while user is in active unlocked session
+                    added_locked_path = os.path.join("data/vault", os.path.basename(path) + ".locked")
+                    if os.path.exists(added_locked_path):
+                        decrypt_file(added_locked_path)
                     show_real_vault()
                 else:
                     print("❌ No file selected")
@@ -150,9 +163,30 @@ def export_and_clear():
     print("✅ Vault is now empty and clean.")
 
 
-def main():
+from core.auto_lock import auto_locker
+from core.intruder import get_intruder_logs
+
+def view_intruder_logs():
+    """Display logged security events and captured intruder photos"""
     print("\n" + "="*50)
-    print("        SECURE LOCKER")
+    print("   SECURITY AUDIT & INTRUDER LOGS")
+    print("="*50)
+    logs = get_intruder_logs()
+    if not logs:
+        print("✅ No intruder activity recorded. System secure.")
+        return
+
+    print(f"\n🚨 Total Security Events Logged: {len(logs)}\n")
+    for idx, entry in enumerate(logs, 1):
+        print(f"[{idx}] Timestamp : {entry.get('timestamp')}")
+        print(f"    Reason    : {entry.get('reason')}")
+        print(f"    Snapshot  : {entry.get('photo_path', 'None')}")
+        print(f"    Action    : {entry.get('action')}\n")
+
+def main():
+    auto_locker.start()
+    print("\n" + "="*50)
+    print("        SECURE LOCKER PRO")
     print("="*50)
     
     # Check if first time
@@ -165,13 +199,15 @@ def main():
     
     # Main menu
     print("\n1. Lock vault")
-    print("2. Unlock vault")
+    print("2. Unlock vault (with Anti-Spoof Liveness)")
     print("3. View vault status")
     print("4. Re-register face")
     print("5. Exit")
     print("6. Export and clear vault")
+    print("7. View Intruder Snapshots & Security Logs")
     
     choice = input("\nChoose: ").strip()
+    auto_locker.touch()
     
     if choice == "1":
         lock_vault()
@@ -187,9 +223,12 @@ def main():
     elif choice == "4":
         register_face()
     elif choice == "5":
+        auto_locker.stop()
         print("Goodbye.")
     elif choice == "6":
         export_and_clear()
+    elif choice == "7":
+        view_intruder_logs()
     else:
         print("Invalid choice.")
 

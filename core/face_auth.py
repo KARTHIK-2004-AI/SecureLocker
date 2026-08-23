@@ -1,7 +1,16 @@
+import os
+import warnings
+import logging
+
+# Suppress TensorFlow C++ and Python log spam
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+warnings.filterwarnings('ignore')
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+
 import cv2
 import numpy as np
 from deepface import DeepFace
-import os
 import json
 from datetime import datetime
 
@@ -149,8 +158,8 @@ def register_face():
     return True
 
 
-def verify_face():
-    """Verify user's face against stored pattern"""
+def verify_face(enable_liveness=True):
+    """Verify user's face against stored pattern with anti-spoof liveness check"""
     if not os.path.exists(EMBEDDING_PATH):
         print("❌ No registered face found. Run setup first.")
         log_verification_attempt(
@@ -162,7 +171,35 @@ def verify_face():
         return False
 
     print("\n🔍 FACE VERIFICATION")
-    frame = capture_face("Look at camera and press SPACE to verify")
+
+    from core.liveness import check_liveness
+    from core.intruder import capture_intruder
+
+    cap = cv2.VideoCapture(0, cv2.CAP_MSMF)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(0)
+
+    if enable_liveness:
+        liveness_ok, live_frame = check_liveness(cap)
+        if not liveness_ok:
+            print("❌ Anti-Spoofing Check Failed: Liveness not verified.")
+            capture_intruder(live_frame, reason="Liveness check failed / Anti-spoof trigger")
+            log_verification_attempt(
+                similarity=None,
+                match=False,
+                face_detected=False,
+                message="Liveness check failed"
+            )
+            cap.release()
+            cv2.destroyAllWindows()
+            return False
+        frame = live_frame
+        cap.release()
+        cv2.destroyAllWindows()
+    else:
+        cap.release()
+        cv2.destroyAllWindows()
+        frame = capture_face("Look at camera and press SPACE to verify")
 
     if frame is None:
         log_verification_attempt(
@@ -183,6 +220,7 @@ def verify_face():
 
     if current_embedding is None:
         print("❌ Face not detected clearly")
+        capture_intruder(frame, reason="Face not detected clearly during extraction")
         log_verification_attempt(
             similarity=None,
             match=False,
@@ -211,6 +249,7 @@ def verify_face():
         return True
     else:
         print(f"❌ Face not recognized ({similarity:.2%} match — below {MATCH_THRESHOLD:.0%} threshold)")
+        capture_intruder(frame, reason=f"Unrecognized face ({similarity:.2%} match)")
         log_verification_attempt(
             similarity=similarity,
             match=False,

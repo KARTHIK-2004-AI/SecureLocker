@@ -1,0 +1,5 @@
+{"timestamp": "2026-08-23T21:03:08.921351", "reason": "Liveness check failed / Anti-spoof trigger", "photo_path": "data/intruders\\intruder_20260823_210308.jpg", "action": "Redirected to Decoy Vault"}
+{"timestamp": "2026-08-23T21:08:15.508594", "reason": "Unrecognized face (8.32% match)", "photo_path": "data/intruders\\intruder_20260823_210815.jpg", "action": "Redirected to Decoy Vault"}
+{"timestamp": "2026-08-23T21:09:03.714091", "reason": "Unrecognized face (78.25% match)", "photo_path": "data/intruders\\intruder_20260823_210903.jpg", "action": "Redirected to Decoy Vault"}
+{"timestamp": "2026-08-23T21:10:27.235460", "reason": "Unrecognized face (84.80% match)", "photo_path": "data/intruders\\intruder_20260823_211027.jpg", "action": "Redirected to Decoy Vault"}
+{"timestamp": "2026-08-23T21:11:32.594461", "reason": "Liveness check failed / Anti-spoof trigger", "photo_path": "data/intruders\\intruder_20260823_211132.jpg", "action": "Redirected to Decoy Vault"}

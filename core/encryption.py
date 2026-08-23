@@ -29,20 +29,29 @@ def encrypt_file(file_path):
     print(f"🔒 Encrypted: {os.path.basename(file_path)}")
 
 def decrypt_file(file_path):
-    """Decrypt a .locked file"""
-    fernet = Fernet(load_key())
-    with open(file_path, "rb") as f:
-        data = f.read()
-    decrypted = fernet.decrypt(data)
-    original_path = file_path.replace(".locked", "")
-    with open(original_path, "wb") as f:
-        f.write(decrypted)
-    os.remove(file_path)
-    print(f"🔓 Decrypted: {os.path.basename(original_path)}")
+    """Decrypt a .locked file back to original file"""
+    if not file_path.endswith(".locked"):
+        print(f"⚠️ File is not locked: {file_path}")
+        return False
+    try:
+        fernet = Fernet(load_key())
+        with open(file_path, "rb") as f:
+            data = f.read()
+        decrypted = fernet.decrypt(data)
+        original_path = file_path[:-7]  # Strip '.locked'
+        with open(original_path, "wb") as f:
+            f.write(decrypted)
+        os.remove(file_path)
+        print(f"🔓 Decrypted: {os.path.basename(original_path)}")
+        return True
+    except Exception as e:
+        print(f"❌ Decryption failed for {os.path.basename(file_path)}: {e}")
+        return False
 
 def encrypt_vault():
     """Encrypt everything in data/vault/"""
     vault_path = "data/vault"
+    os.makedirs(vault_path, exist_ok=True)
     files = [f for f in os.listdir(vault_path) if not f.endswith(".locked")]
     if not files:
         print("ℹ️  No unencrypted files in vault")
@@ -54,13 +63,16 @@ def encrypt_vault():
 def decrypt_vault():
     """Decrypt everything in data/vault/"""
     vault_path = "data/vault"
+    os.makedirs(vault_path, exist_ok=True)
     files = [f for f in os.listdir(vault_path) if f.endswith(".locked")]
     if not files:
         print("ℹ️  No encrypted files to decrypt")
         return
+    success_count = 0
     for filename in files:
-        decrypt_file(os.path.join(vault_path, filename))
-    print(f"✅ Vault unlocked — {len(files)} file(s) decrypted")
+        if decrypt_file(os.path.join(vault_path, filename)):
+            success_count += 1
+    print(f"✅ Vault unlocked — {success_count} file(s) decrypted")
 
 def add_file_to_vault(source_path):
     """MOVE file into vault and encrypt it — original location becomes empty"""
