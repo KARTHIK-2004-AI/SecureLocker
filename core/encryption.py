@@ -63,19 +63,25 @@ def decrypt_vault():
     print(f"✅ Vault unlocked — {len(files)} file(s) decrypted")
 
 def add_file_to_vault(source_path):
-    """Copy a file into vault and encrypt it immediately"""
+    """MOVE file into vault and encrypt it — original location becomes empty"""
     import shutil
     if not os.path.exists(source_path):
         print(f"❌ File not found: {source_path}")
         return False
+
     vault_path = "data/vault"
     filename = os.path.basename(source_path)
     dest_path = os.path.join(vault_path, filename)
-    shutil.copy2(source_path, dest_path)
-    encrypt_file(dest_path)
-    print(f"✅ File added and locked: {filename}")
-    return True
 
+    # MOVE file into vault (not copy)
+    shutil.move(source_path, dest_path)
+    print(f"📦 File moved into vault: {filename}")
+
+    # Encrypt it inside vault
+    encrypt_file(dest_path)
+    print(f"🔒 File locked: {filename}")
+    
+    return True
 def setup_decoy():
     """Create convincing empty decoy folder"""
     decoy_path = "data/decoy"

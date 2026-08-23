@@ -1,7 +1,9 @@
 import os
 from core.face_auth import register_face, verify_face
-from core.encryption import encrypt_vault, decrypt_vault, generate_key
+from core.encryption import encrypt_vault, decrypt_vault, generate_key,add_file_to_vault
 from core.decoy import setup_decoy, show_decoy, show_real_vault
+import tkinter as tk
+from tkinter import filedialog
 
 EMBEDDING_PATH = "data/face_embedding.npy"
 KEY_PATH = "data/vault.key"
@@ -42,6 +44,24 @@ def lock_vault():
     encrypt_vault()
     print("✅ Vault is now locked. Files are encrypted.")
 
+def browse_file():
+    """Open file picker dialog — user selects file visually"""
+    root = tk.Tk()
+    root.withdraw()  # Hide the empty tkinter window
+    root.attributes('-topmost', True)  # Bring dialog to front
+    
+    file_path = filedialog.askopenfilename(
+        title="Select file to secure",
+        filetypes=[
+            ("All files", "*.*"),
+            ("Documents", "*.pdf *.docx *.txt"),
+            ("Images", "*.jpg *.png *.jpeg"),
+            ("Videos", "*.mp4 *.avi *.mkv"),
+        ]
+    )
+    
+    root.destroy()
+    return file_path if file_path else None
 
 def unlock_vault():
     """Face auth → decrypt or show decoy"""
@@ -57,14 +77,38 @@ def unlock_vault():
         decrypt_vault()
         show_real_vault()
         
-        try:
-            input("\nPress ENTER when done to lock vault again...")
-        finally:
-            encrypt_vault()
-            print("🔒 Vault locked again.")
+        while True:
+            print("\nWhat do you want to do?")
+            print("1. Add a file to vault")
+            print("2. View vault contents")
+            print("3. Lock and exit")
+            
+            action = input("Choose: ").strip()
+            
+            if action == "1":
+                print("\n📂 Opening file browser...")
+                path = browse_file()
+                if path:
+                    print(f"Selected: {os.path.basename(path)}")
+                    add_file_to_vault(path)
+                    show_real_vault()
+                else:
+                    print("❌ No file selected")
+
+            elif action == "2":
+                show_real_vault()
+
+            elif action == "3":
+                break
+
+            else:
+                print("Invalid choice")
+
+        encrypt_vault()
+        print("🔒 Vault locked again.")
+
     else:
         print("\n❌ Face not recognized.")
-        print("Showing vault contents...")
         show_decoy()
         print("\n🔒 Access denied.")
 def export_and_clear():
