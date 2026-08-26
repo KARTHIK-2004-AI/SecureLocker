@@ -16,7 +16,7 @@ from datetime import datetime
 
 EMBEDDING_PATH = "data/face_embedding.npy"
 LOG_PATH = "data/verification_log.jsonl"
-MATCH_THRESHOLD = 0.85
+MATCH_THRESHOLD = 0.70
 
 
 def log_verification_attempt(similarity, match, face_detected, message=""):
@@ -50,14 +50,21 @@ def enhance_lighting(frame):
     return cv2.cvtColor(ycrcb_eq, cv2.COLOR_YCrCb2BGR)
 
 
-def capture_face(message="Press SPACE to capture, ESC to cancel"):
-    """Opens camera and captures a frame with live lighting analysis"""
-    
-    cap = cv2.VideoCapture(0, cv2.CAP_MSMF)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(0)
-    captured_frame = None
+def capture_face(cap=None, message="Look at camera to authenticate", countdown_seconds=3.0, auto_capture=True):
+    """
+    Opens/uses camera and captures a steady face frame with live lighting analysis & countdown timer.
+    Gives the user ~3 seconds to position their face, hold steady, and ensure lighting is clear.
+    """
+    import time
+    release_cap_at_end = False
+    if cap is None or not cap.isOpened():
+        cap = cv2.VideoCapture(0, cv2.CAP_MSMF)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(0)
+        release_cap_at_end = True
 
+    captured_frame = None
+    start_time = time.time()
     print(f"\n📸 {message}")
 
     while True:
@@ -67,13 +74,20 @@ def capture_face(message="Press SPACE to capture, ESC to cancel"):
             break
 
         brightness = check_brightness(frame)
-
-        # Show live feed with instruction and brightness warning
         display = frame.copy()
-        cv2.putText(display, "SPACE = Capture | ESC = Cancel",
+        elapsed = time.time() - start_time
+        remaining = max(0.0, countdown_seconds - elapsed)
+
+        # Draw UI overlay
+        if auto_capture and countdown_seconds > 0:
+            status_str = f"Hold steady: Capturing in {remaining:.1f}s... (or press SPACE)"
+        else:
+            status_str = "SPACE = Capture | ESC = Cancel"
+
+        cv2.putText(display, status_str,
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (0, 255, 0), 2)
-        
+                    0.6, (0, 255, 0), 2)
+
         if brightness < 65:
             cv2.putText(display, f"WARNING: Low Light ({int(brightness)}/255 - Too Dim)",
                         (10, 65), cv2.FONT_HERSHEY_SIMPLEX,
@@ -85,60 +99,90 @@ def capture_face(message="Press SPACE to capture, ESC to cancel"):
 
         cv2.imshow("SecureLocker - Face Capture", display)
 
-        key = cv2.waitKey(1)
+        key = cv2.waitKey(30)
         if key == 32:  # SPACE
-            captured_frame = frame
-            print(f"✅ Face captured (Brightness score: {int(brightness)}/255)")
-            if brightness < 65:
-                print("⚠️ Warning: Low lighting detected. Applying auto-enhancement...")
+            captured_frame = frame.copy()
+            print(f"✅ Face captured manually (Brightness score: {int(brightness)}/255)")
             break
         elif key == 27:  # ESC
             print("❌ Cancelled")
             break
 
-    cap.release()
+        if auto_capture and countdown_seconds > 0 and elapsed >= countdown_seconds:
+            captured_frame = frame.copy()
+            print(f"✅ Auto-captured steady face (Brightness score: {int(brightness)}/255)")
+            if brightness < 65:
+                print("⚠️ Warning: Low lighting detected. Applying auto-enhancement...")
+            break
+
+    if release_cap_at_end:
+        cap.release()
     cv2.destroyAllWindows()
     return captured_frame
 
 
 def extract_embedding(frame):
-    """Extract 128-number facial pattern from a frame with lighting enhancement"""
+    """Extract 128-number facial pattern from a frame with lighting enhancement and fallback"""
+    if frame is None or frame.size == 0:
+        return None
+
     # Apply CLAHE histogram equalization for consistent feature representation
     enhanced_frame = enhance_lighting(frame)
 
-    # Save frame temporarily for DeepFace to process
+    os.makedirs("data", exist_ok=True)
     temp_path = "data/temp_capture.jpg"
     cv2.imwrite(temp_path, enhanced_frame)
 
+    # 1. Primary extraction with enforced detection
     try:
-        # Extract embedding using Facenet model
         result = DeepFace.represent(
             img_path=temp_path,
             model_name="Facenet",
             enforce_detection=True
         )
-        embedding = np.array(result[0]["embedding"])
-        os.remove(temp_path)
-        return embedding
+        if result and len(result) > 0 and "embedding" in result[0]:
+            embedding = np.array(result[0]["embedding"])
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return embedding
+    except Exception:
+        pass
 
+    # 2. Fallback extraction without enforced detection (handles minor angles/lighting)
+    try:
+        result = DeepFace.represent(
+            img_path=temp_path,
+            model_name="Facenet",
+            enforce_detection=False
+        )
+        if result and len(result) > 0 and "embedding" in result[0]:
+            embedding = np.array(result[0]["embedding"])
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return embedding
     except Exception as e:
-        print(f"❌ Face not detected clearly: {e}")
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        return None
+        print(f"❌ Could not extract facial features: {e}")
+
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+    return None
 
 
-def register_face():
-    """Register user's face pattern — runs once during setup"""
-    print("\n🔐 FACE REGISTRATION")
-    print("="*40)
+def register_face(username="Admin", role="admin"):
+    """Register user's face pattern with multi-user user_manager integration"""
+    print(f"\n🔐 FACE REGISTRATION — Profile: '{username}' ({role.upper()})")
+    print("="*45)
     print("Make sure:")
     print("  - Good lighting on your face")
     print("  - Look directly at the camera")
     print("  - No glasses or mask if possible")
-    print("="*40)
+    print("="*45)
 
-    frame = capture_face("Look at camera and press SPACE to register")
+    frame = capture_face(
+        message=f"Hold steady & look at camera to register profile for '{username}'",
+        countdown_seconds=3.0,
+        auto_capture=True
+    )
 
     if frame is None:
         print("❌ Registration cancelled")
@@ -151,39 +195,36 @@ def register_face():
         print("❌ Could not detect face clearly. Try again with better lighting.")
         return False
 
-    # Save the 128-number pattern
-    np.save(EMBEDDING_PATH, embedding)
-    print(f"✅ Facial pattern saved — {len(embedding)} dimensional embedding stored")
-    print("✅ Registration complete")
+    from core.user_manager import register_user
+    register_user(username, role, embedding)
     return True
 
 
 def verify_face(enable_liveness=True):
-    """Verify user's face against stored pattern with anti-spoof liveness check"""
-    if not os.path.exists(EMBEDDING_PATH):
-        print("❌ No registered face found. Run setup first.")
-        log_verification_attempt(
-            similarity=None,
-            match=False,
-            face_detected=False,
-            message="No registered face found"
-        )
-        return False
-
-    print("\n🔍 FACE VERIFICATION")
-
+    """
+    Verify user's face against all registered profiles with anti-spoof liveness check and steady 3s capture.
+    Returns (username, role, similarity) if verified, else (None, None, similarity).
+    """
+    from core.user_manager import list_users, match_user_embedding
     from core.liveness import check_liveness
     from core.intruder import capture_intruder
+
+    users = list_users()
+    if not users:
+        print("❌ No registered users found. Please run setup or register a user first.")
+        return None, None, 0.0
+
+    print("\n🔍 MULTI-USER FACE VERIFICATION")
 
     cap = cv2.VideoCapture(0, cv2.CAP_MSMF)
     if not cap.isOpened():
         cap = cv2.VideoCapture(0)
 
     if enable_liveness:
-        liveness_ok, live_frame = check_liveness(cap)
+        liveness_ok, _ = check_liveness(cap)
         if not liveness_ok:
             print("❌ Anti-Spoofing Check Failed: Liveness not verified.")
-            capture_intruder(live_frame, reason="Liveness check failed / Anti-spoof trigger")
+            capture_intruder(None, reason="Liveness check failed / Anti-spoof trigger")
             log_verification_attempt(
                 similarity=None,
                 match=False,
@@ -192,14 +233,26 @@ def verify_face(enable_liveness=True):
             )
             cap.release()
             cv2.destroyAllWindows()
-            return False
-        frame = live_frame
+            return None, None, 0.0
+
+        # After liveness is verified, give user 3 seconds in live camera preview to hold steady
+        frame = capture_face(
+            cap=cap,
+            message="Liveness verified! Please HOLD STEADY & look at camera",
+            countdown_seconds=3.0,
+            auto_capture=True
+        )
         cap.release()
         cv2.destroyAllWindows()
     else:
+        frame = capture_face(
+            cap=cap,
+            message="Look at camera and hold steady to verify",
+            countdown_seconds=3.0,
+            auto_capture=True
+        )
         cap.release()
         cv2.destroyAllWindows()
-        frame = capture_face("Look at camera and press SPACE to verify")
 
     if frame is None:
         log_verification_attempt(
@@ -208,14 +261,10 @@ def verify_face(enable_liveness=True):
             face_detected=False,
             message="Verification cancelled by user"
         )
-        return False
+        return None, None, 0.0
 
-    print("⏳ Comparing facial pattern...")
+    print("⏳ Matching facial pattern against registered user profiles...")
 
-    # Load stored pattern
-    stored_embedding = np.load(EMBEDDING_PATH)
-
-    # Extract pattern from current frame
     current_embedding = extract_embedding(frame)
 
     if current_embedding is None:
@@ -227,26 +276,22 @@ def verify_face(enable_liveness=True):
             face_detected=False,
             message="Face not detected clearly"
         )
-        return False
+        return None, None, 0.0
 
-    # Calculate cosine similarity between the two patterns
-    similarity = np.dot(stored_embedding, current_embedding) / (
-        np.linalg.norm(stored_embedding) * np.linalg.norm(current_embedding)
-    )
+    # Match against multi-user embeddings database
+    matched_username, matched_role, similarity = match_user_embedding(current_embedding, MATCH_THRESHOLD)
 
-    print(f"📊 Similarity score: {similarity:.4f}")
+    print(f"📊 Best Similarity Score: {similarity:.4f}")
 
-    is_match = bool(similarity >= MATCH_THRESHOLD)
-
-    if is_match:
-        print(f"✅ Face verified! ({similarity:.2%} match)")
+    if matched_username:
+        print(f"✅ Welcome, {matched_username}! ({matched_role.upper()}) — Verified ({similarity:.2%} match)")
         log_verification_attempt(
             similarity=similarity,
             match=True,
             face_detected=True,
-            message="Face verified successfully"
+            message=f"Verified user: {matched_username} ({matched_role})"
         )
-        return True
+        return matched_username, matched_role, similarity
     else:
         print(f"❌ Face not recognized ({similarity:.2%} match — below {MATCH_THRESHOLD:.0%} threshold)")
         capture_intruder(frame, reason=f"Unrecognized face ({similarity:.2%} match)")
@@ -254,19 +299,21 @@ def verify_face(enable_liveness=True):
             similarity=similarity,
             match=False,
             face_detected=True,
-            message="Face not recognized (below threshold)"
+            message="Face not recognized"
         )
-        return False
+        return None, None, similarity
 
 
 if __name__ == "__main__":
-    print("Testing face_auth module")
-    print("1. Register")
-    print("2. Verify")
+    print("Testing multi-user face_auth module")
+    print("1. Register User")
+    print("2. Verify Face")
     choice = input("Choose: ")
 
     if choice == "1":
-        register_face()
+        uname = input("Username: ").strip()
+        urole = input("Role (admin/member): ").strip()
+        register_face(uname, urole)
     elif choice == "2":
-        result = verify_face()
-        print(f"\nResult: {'GRANTED' if result else 'DENIED'}")
+        user, role, score = verify_face()
+        print(f"\nResult: User={user}, Role={role}, Score={score}")

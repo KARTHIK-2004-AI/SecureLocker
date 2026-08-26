@@ -1,14 +1,17 @@
 # Virtual environment
 .venv/
 
-# Sensitive security data — NEVER push
+# Sensitive security data & runtime logs — NEVER push to git
+data/
+data/intruders/
+data/intruder_log.jsonl
+data/verification_log.jsonl
 data/face_embedding.npy
 data/vault.key
-data/intruder_log.txt
-data/verification_log.jsonl
 data/vault/
 data/decoy/
 data/exported/
+data/users/
 data/temp_capture.jpg
 
 # Python cache

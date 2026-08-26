@@ -11,6 +11,12 @@ logging.getLogger('tensorflow').setLevel(logging.ERROR)
 from core.face_auth import register_face, verify_face
 from core.encryption import encrypt_vault, decrypt_vault, generate_key, add_file_to_vault, decrypt_file
 from core.decoy import setup_decoy, show_decoy, show_real_vault
+from core.auto_lock import auto_locker
+from core.intruder import get_intruder_logs
+from core.user_manager import (
+    init_user_system, list_users, register_user, decrypt_user_vault,
+    encrypt_user_vault, add_file_to_user_vault, get_user_paths, delete_user_profile
+)
 import tkinter as tk
 from tkinter import filedialog
 
@@ -68,103 +74,82 @@ def browse_file():
             ("Videos", "*.mp4 *.avi *.mkv"),
         ]
     )
-    
     root.destroy()
     return file_path if file_path else None
 
-def unlock_vault():
-    """Face auth → decrypt or show decoy"""
-    print("\n" + "="*50)
-    print("   SECURE LOCKER — UNLOCK")
-    print("="*50)
-    
-    print("\nLook at the camera to unlock...")
-    verified = verify_face()
-    
-    if verified:
-        print("\n✅ Access granted!")
-        decrypt_vault()
-        show_real_vault()
-        
-        while True:
-            print("\nWhat do you want to do?")
-            print("1. Add a file to vault")
-            print("2. View vault contents")
-            print("3. Lock and exit")
-            
-            action = input("Choose: ").strip()
-            
-            if action == "1":
-                print("\n📂 Opening file browser...")
-                path = browse_file()
-                if path:
-                    print(f"Selected: {os.path.basename(path)}")
-                    add_file_to_vault(path)
-                    # Keep unencrypted while user is in active unlocked session
-                    added_locked_path = os.path.join("data/vault", os.path.basename(path) + ".locked")
-                    if os.path.exists(added_locked_path):
-                        decrypt_file(added_locked_path)
-                    show_real_vault()
-                else:
-                    print("❌ No file selected")
-
-            elif action == "2":
-                show_real_vault()
-
-            elif action == "3":
-                break
-
-            else:
-                print("Invalid choice")
-
-        encrypt_vault()
-        print("🔒 Vault locked again.")
-
-    else:
-        print("\n❌ Face not recognized.")
-        show_decoy()
-        print("\n🔒 Access denied.")
-def export_and_clear():
-    """Decrypt files, copy to export folder, then clear vault"""
-    print("\n" + "="*50)
-    print("   EXPORT AND CLEAR VAULT")
-    print("="*50)
-    
-    print("\nVerify your face to export files...")
-    verified = verify_face()
-    
-    if not verified:
-        print("❌ Face not recognized. Export denied.")
-        show_decoy()
-        return
-    
-    # Decrypt first
-    decrypt_vault()
-    
-    files = os.listdir("data/vault")
+def show_user_vault(username):
+    """Displays files inside user's isolated vault"""
+    paths = get_user_paths(username)
+    vault_path = paths["vault"]
+    os.makedirs(vault_path, exist_ok=True)
+    files = os.listdir(vault_path)
     if not files:
-        print("ℹ️  Vault is already empty.")
+        print(f"\n📁 {username}'s Vault is empty.")
         return
-    
-    # Create export folder
-    export_path = "data/exported"
-    os.makedirs(export_path, exist_ok=True)
-    
-    # Copy files out
-    for filename in files:
-        src = os.path.join("data/vault", filename)
-        dst = os.path.join(export_path, filename)
-        import shutil
-        shutil.copy2(src, dst)
-        os.remove(src)
-        print(f"📤 Exported: {filename}")
-    
-    print(f"\n✅ Files moved to: data/exported/")
-    print("✅ Vault is now empty and clean.")
+    print(f"\n📁 {username}'s Vault contents:")
+    for f in files:
+        size = os.path.getsize(os.path.join(vault_path, f))
+        status = "🔒 LOCKED" if f.endswith(".locked") else "🔓 UNLOCKED"
+        print(f"   [{status}] {f}  ({size} bytes)")
 
+def manage_users_menu(current_admin_user="Admin"):
+    """Admin User Management Menu"""
+    print("\n" + "="*50)
+    print("   ADMIN USER MANAGEMENT")
+    print("="*50)
+    print("1. List All Registered Users")
+    print("2. Register New User Profile")
+    print("3. Delete User Profile")
+    print("4. Back to Main Session")
 
-from core.auto_lock import auto_locker
-from core.intruder import get_intruder_logs
+    choice = input("\nChoose: ").strip()
+
+    if choice == "1":
+        users = list_users()
+        print("\n👥 Registered Profiles:")
+        for u in users:
+            print(f"   • {u['username']}  (Role: {u['role'].upper()})")
+
+    elif choice == "2":
+        new_name = input("Enter new username: ").strip()
+        if not new_name:
+            print("❌ Invalid username")
+            return
+        role_choice = input("Assign Role (1. Member / 2. Admin): ").strip()
+        role = "admin" if role_choice == "2" else "member"
+        register_face(username=new_name, role=role)
+
+    elif choice == "3":
+        users = list_users()
+        print("\n👥 Registered Profiles:")
+        for idx, u in enumerate(users, 1):
+            print(f"   {idx}. {u['username']} ({u['role'].upper()})")
+        target_input = input("Enter number or username to delete: ").strip()
+
+        target_name = None
+        if target_input.isdigit():
+            idx = int(target_input) - 1
+            if 0 <= idx < len(users):
+                target_name = users[idx]['username']
+        else:
+            target_name = target_input
+
+        if not target_name:
+            print("❌ Invalid selection.")
+            return
+
+        if target_name.lower() == current_admin_user.lower():
+            print(f"❌ Cannot delete your own active session profile ('{current_admin_user}').")
+            return
+
+        admin_count = len([u for u in users if u['role'].lower() == 'admin'])
+        target_user_obj = next((u for u in users if u['username'].lower() == target_name.lower()), None)
+
+        if target_user_obj and target_user_obj['role'].lower() == 'admin' and admin_count <= 1:
+            print("❌ Cannot delete the primary Admin profile.")
+            return
+
+        delete_user_profile(target_name)
 
 def view_intruder_logs():
     """Display logged security events and captured intruder photos"""
@@ -183,55 +168,115 @@ def view_intruder_logs():
         print(f"    Snapshot  : {entry.get('photo_path', 'None')}")
         print(f"    Action    : {entry.get('action')}\n")
 
-def main():
-    auto_locker.start()
+def unlock_vault():
+    """Face auth → decrypt isolated user vault or show decoy"""
     print("\n" + "="*50)
-    print("        SECURE LOCKER PRO")
+    print("   SECURE LOCKER PRO — UNLOCK")
     print("="*50)
     
-    # Check if first time
-    if not os.path.exists(EMBEDDING_PATH):
-        print("\nNo registered user found.")
-        setup = input("Run first time setup? (y/n): ")
+    print("\nLook at the camera to authenticate...")
+    matched_user, matched_role, similarity = verify_face(enable_liveness=True)
+    
+    if matched_user:
+        print(f"\n✅ Access granted! Welcome, {matched_user} ({matched_role.upper()})")
+        decrypt_user_vault(matched_user)
+        show_user_vault(matched_user)
+        
+        while True:
+            print(f"\n--- {matched_user}'s Session ---")
+            print("1. Add a file to your vault")
+            print("2. View your vault contents")
+            print("3. Lock and exit session")
+            if matched_role == "admin":
+                print("4. Admin User Management (Register/List Users)")
+                print("5. View Intruder Snapshots & Security Audit")
+
+            action = input("Choose: ").strip()
+            auto_locker.touch()
+
+            if action == "1":
+                print("\n📂 Opening file browser...")
+                path = browse_file()
+                if path:
+                    print(f"Selected: {os.path.basename(path)}")
+                    add_file_to_user_vault(matched_user, path)
+                    # Decrypt newly added file for active session
+                    locked_added = os.path.join(get_user_paths(matched_user)["vault"], os.path.basename(path) + ".locked")
+                    if os.path.exists(locked_added):
+                        from cryptography.fernet import Fernet
+                        from core.user_manager import get_user_key
+                        fernet = Fernet(get_user_key(matched_user))
+                        with open(locked_added, "rb") as f:
+                            data = f.read()
+                        decrypted = fernet.decrypt(data)
+                        orig = locked_added[:-7]
+                        with open(orig, "wb") as f:
+                            f.write(decrypted)
+                        os.remove(locked_added)
+                    show_user_vault(matched_user)
+                else:
+                    print("❌ No file selected")
+
+            elif action == "2":
+                show_user_vault(matched_user)
+
+            elif action == "3":
+                break
+
+            elif action == "4" and matched_role == "admin":
+                manage_users_menu(current_admin_user=matched_user)
+
+            elif action == "5" and matched_role == "admin":
+                view_intruder_logs()
+
+            else:
+                print("Invalid choice")
+
+        encrypt_user_vault(matched_user)
+        print(f"🔒 {matched_user}'s vault locked. Session ended.")
+
+    else:
+        print("\n❌ Face not recognized.")
+        show_decoy()
+        print("\n🔒 Access denied.")
+
+def main():
+    auto_locker.start()
+    init_user_system()
+    
+    print("\n" + "="*50)
+    print("        SECURE LOCKER PRO (MULTI-USER)")
+    print("="*50)
+
+    users = list_users()
+    if not users:
+        print("\nNo registered user profile found.")
+        setup = input("Register initial Admin face profile? (y/n): ")
         if setup.lower() == "y":
-            first_time_setup()
+            register_face(username="Admin", role="admin")
         return
-    
-    # Main menu
-    print("\n1. Lock vault")
-    print("2. Unlock vault (with Anti-Spoof Liveness)")
-    print("3. View vault status")
-    print("4. Re-register face")
-    print("5. Exit")
-    print("6. Export and clear vault")
-    print("7. View Intruder Snapshots & Security Logs")
-    
+
+    print("\nRegistered Profiles:", ", ".join([f"{u['username']} ({u['role'].upper()})" for u in users]))
+    print("\n1. Unlock Vault (Face Authentication)")
+    print("2. Register New User Profile")
+    print("3. Exit")
+
     choice = input("\nChoose: ").strip()
     auto_locker.touch()
-    
+
     if choice == "1":
-        lock_vault()
-    elif choice == "2":
         unlock_vault()
+    elif choice == "2":
+        uname = input("Username for new profile: ").strip()
+        if uname:
+            r_choice = input("Role (1. Member / 2. Admin): ").strip()
+            role = "admin" if r_choice == "2" else "member"
+            register_face(username=uname, role=role)
     elif choice == "3":
-        files = os.listdir("data/vault")
-        locked = [f for f in files if f.endswith(".locked")]
-        unlocked = [f for f in files if not f.endswith(".locked")]
-        print(f"\n📊 Vault status:")
-        print(f"   Locked files   : {len(locked)}")
-        print(f"   Unlocked files : {len(unlocked)}")
-    elif choice == "4":
-        register_face()
-    elif choice == "5":
         auto_locker.stop()
         print("Goodbye.")
-    elif choice == "6":
-        export_and_clear()
-    elif choice == "7":
-        view_intruder_logs()
     else:
         print("Invalid choice.")
-
 
 if __name__ == "__main__":
     main()
